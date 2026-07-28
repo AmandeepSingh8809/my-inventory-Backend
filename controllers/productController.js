@@ -11,10 +11,9 @@ const fetchAllProducts = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch products" });
   }
 };
-
 const addProduct = async (req, res) => {
   try {
-    // 🚨 NEW: Extract supplier and invoiceNumber from the frontend request
+    // 🚨 Extract the new carton variables from the frontend payload
     const { 
       code, 
       name, 
@@ -23,10 +22,12 @@ const addProduct = async (req, res) => {
       quantity, 
       unit_id, 
       supplier, 
-      invoiceNumber 
+      invoiceNumber,
+      cartonCode,         // <-- NEW
+      cartonMultiplier    // <-- NEW
     } = req.body;
 
-    // Pass the frontend data directly into your transaction model
+    // Pass everything directly into your transaction model
     const newProduct = await productModel.addProduct({
       code,
       name,
@@ -34,14 +35,15 @@ const addProduct = async (req, res) => {
       costPrice,
       quantity,
       unit_id,
-      supplier,       // <-- ADDED THIS
-      invoiceNumber   // <-- ADDED THIS
+      supplier,       
+      invoiceNumber,   
+      cartonCode,         // <-- NEW
+      cartonMultiplier    // <-- NEW
     });
 
     res.status(201).json(newProduct);
   } catch (error) {
     console.error("Error in addProduct controller:", error);
-    // Send a 500 status so the React Native frontend knows to trigger the "catch" block alert
     res.status(500).json({ error: "Failed to add product" });
   }
 };
