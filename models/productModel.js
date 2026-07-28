@@ -77,47 +77,54 @@ const searchProducts = async (filters) => {
 
 
 
-const addProduct = async ({ code, name, price, costPrice, quantity, unit_id }) => {
+// Add supplier and invoiceNumber as optional parameters
+const addProduct = async ({ code, name, price, costPrice, quantity, unit_id, supplier = 'Walk-in / Unknown', invoiceNumber = null }) => {
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
+    let currentProduct;
 
-    // Generate a unique ID for the new product
-    const newProductId = crypto.randomUUID();
+    const checkResult = await client.query('SELECT * FROM product WHERE code = $1', [code]);
 
-    // 1. Added 'id' to the INSERT columns and $7 to the VALUES
-    const productResult = await client.query(
-      `INSERT INTO product (id, code, name, price, "costPrice", quantity, unit_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING *;`,
-      [newProductId, code, name, price, costPrice, quantity, unit_id]
-    );
+    if (checkResult.rows.length > 0) {
+      // 🟢 EXISTING PRODUCT
+      currentProduct = checkResult.rows[0];
+      const updateResult = await client.query(
+        `UPDATE product SET quantity = quantity + $1, price = $2, "costPrice" = $3 WHERE id = $4 RETURNING *;`,
+        [quantity, price, costPrice, currentProduct.id]
+      );
+      currentProduct = updateResult.rows[0];
+    } else {
+      // 🔵 NEW PRODUCT
+      const newProductId = crypto.randomUUID();
+      const insertResult = await client.query(
+        `INSERT INTO product (id, code, name, price, "costPrice", quantity, unit_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *;`,
+        [newProductId, code, name, price, costPrice, quantity, unit_id]
+      );
+      currentProduct = insertResult.rows[0];
+    }
 
-    const newProduct = productResult.rows[0];
-
+    // 3. Log the "Stock In" activity WITH the new supplier and invoice fields!
     if (quantity > 0) {
       const totalCost = quantity * costPrice;
-      
       await client.query(
-        `INSERT INTO purchase (product_id, quantity, unit_cost, total_cost, supplier)
-         VALUES ($1, $2, $3, $4, $5);`,
-        [newProduct.id, quantity, costPrice, totalCost, 'Opening Stock']
+        `INSERT INTO purchase (product_id, quantity, unit_cost, total_cost, supplier, invoice_number)
+         VALUES ($1, $2, $3, $4, $5, $6);`,
+        [currentProduct.id, quantity, costPrice, totalCost, supplier, invoiceNumber] // <-- Added here
       );
     }
 
     await client.query('COMMIT');
-    
-    return newProduct;
+    return currentProduct;
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error("Error adding product:", error);
     throw error;
   } finally {
     client.release();
   }
-}
+};
 
 module.exports = {
   fetchAllProduct,

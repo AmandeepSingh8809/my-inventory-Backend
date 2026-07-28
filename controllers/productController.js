@@ -14,7 +14,17 @@ const fetchAllProducts = async (req, res) => {
 
 const addProduct = async (req, res) => {
   try {
-    const { code, name, price, costPrice, quantity, unit_id } = req.body;
+    // 🚨 NEW: Extract supplier and invoiceNumber from the frontend request
+    const { 
+      code, 
+      name, 
+      price, 
+      costPrice, 
+      quantity, 
+      unit_id, 
+      supplier, 
+      invoiceNumber 
+    } = req.body;
 
     // Pass the frontend data directly into your transaction model
     const newProduct = await productModel.addProduct({
@@ -23,7 +33,9 @@ const addProduct = async (req, res) => {
       price,
       costPrice,
       quantity,
-      unit_id
+      unit_id,
+      supplier,       // <-- ADDED THIS
+      invoiceNumber   // <-- ADDED THIS
     });
 
     res.status(201).json(newProduct);
