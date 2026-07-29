@@ -11,9 +11,9 @@ const fetchAllProducts = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch products" });
   }
 };
+
 const addProduct = async (req, res) => {
   try {
-    // 🚨 Extract the new carton variables from the frontend payload
     const { 
       code, 
       name, 
@@ -23,22 +23,37 @@ const addProduct = async (req, res) => {
       unit_id, 
       supplier, 
       invoiceNumber,
-      cartonCode,         // <-- NEW
-      cartonMultiplier    // <-- NEW
+      cartonCode,         
+      cartonMultiplier,
     } = req.body;
 
-    // Pass everything directly into your transaction model
+    // 1. 🚨 Parse serials safely (FormData sends arrays as a JSON string)
+    let serialsArray = [];
+    if (req.body.serials) {
+      try {
+        serialsArray = JSON.parse(req.body.serials);
+      } catch (e) {
+        console.warn("Could not parse serials, defaulting to empty array.");
+      }
+    }
+
+    // 2. 🚨 Get the image path if a file was uploaded by Multer
+    const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+
+    // 3. Send parsed data to the model
     const newProduct = await productModel.addProduct({
       code,
       name,
-      price,
-      costPrice,
-      quantity,
-      unit_id,
+      price: parseFloat(price),
+      costPrice: costPrice ? parseFloat(costPrice) : 0,
+      quantity: parseFloat(quantity),
+      unit_id: parseInt(unit_id),
       supplier,       
       invoiceNumber,   
-      cartonCode,         // <-- NEW
-      cartonMultiplier    // <-- NEW
+      cartonCode,         
+      cartonMultiplier: cartonMultiplier ? parseInt(cartonMultiplier) : 1,
+      serials: serialsArray,
+      image_url // 🚨 NEW: Pass the image path to the database model
     });
 
     res.status(201).json(newProduct);

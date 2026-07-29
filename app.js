@@ -8,11 +8,11 @@ const salesRoutes = require("./routes/salesroutes");
 const purchaseRoutes = require("./routes/purchaseRoutes");
 const financeRoutes = require("./routes/financeRoutes");
 const app = express();
-
+const path = require('path');
 // Middleware
 app.use(cors());
 app.use(bodyParser.json()); // Tells Express to parse incoming JSON data
-
+app.use('/uploads', express.static(path.join(__dirname,'uploads')));
 // Routes
 app.use('/', productRoutes);
 app.use('/',salesRoutes);

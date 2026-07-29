@@ -19,69 +19,68 @@ const searchProducts = async (filters) => {
   const { query, category, minPrice, maxPrice, inStockOnly } = filters;
   const cleanQuery = query ? query.trim() : '';
   
-  // Start with a base query
-  // NEW: We pass $1 as the exact scanned code. If it matches the carton_code, scan_qty becomes the multiplier!
   let sql = `
     SELECT p.*, u.name AS unit_name,
-           CASE WHEN p.carton_code = $1 THEN p.carton_multiplier ELSE 1 END AS scan_qty
+           CASE WHEN p.carton_code = $1 THEN p.carton_multiplier ELSE 1 END AS scan_qty,
+           ps.serial_number AS scanned_serial 
     FROM product p
     LEFT JOIN unit u ON p.unit_id = u.id
+    LEFT JOIN product_serial ps ON ps.product_id = p.id AND ps.serial_number = $1
     WHERE 1=1
   `;
 
-  // $1 is always the cleanQuery for the CASE statement above
   const params = [cleanQuery];
   let paramIdx = 2; 
 
-  // 1. Text Search (Item Barcode, Carton Barcode, or Name)
   if (cleanQuery) {
-    sql += ` AND (p.code::text ILIKE $${paramIdx} OR p.carton_code::text ILIKE $${paramIdx} OR p.name ILIKE $${paramIdx})`;
+    sql += ` AND (
+      p.code::text ILIKE $${paramIdx} OR 
+      p.carton_code::text ILIKE $${paramIdx} OR 
+      ps.serial_number::text ILIKE $${paramIdx} OR 
+      p.name ILIKE $${paramIdx}
+    )`;
     params.push(`%${cleanQuery}%`);
     paramIdx += 1;
   }
 
-  // 2. Category Filter
   if (category && category !== 'All') {
     sql += ` AND p.category = $${paramIdx}`;
     params.push(category);
     paramIdx++;
   }
 
-  // 3. Minimum Price
   if (minPrice) {
     sql += ` AND p.price >= $${paramIdx}`;
     params.push(Number(minPrice));
     paramIdx++;
   }
 
-  // 4. Maximum Price
   if (maxPrice) {
     sql += ` AND p.price <= $${paramIdx}`;
     params.push(Number(maxPrice));
     paramIdx++;
   }
 
-  // 5. In-Stock Only Toggle
   if (inStockOnly === 'true') {
     sql += ` AND p.quantity > 0`;
   }
 
-  // Sort alphabetically and cap it to prevent crashing the mobile app
   sql += ` ORDER BY p.name ASC LIMIT 50;`;
 
   const result = await pool.query(sql, params);
   return result.rows;
 };
 
-// NEW: Added cartonCode and cartonMultiplier to the function parameters
+// 🚨 UPGRADED: Added `image_url = null` parameter
 const addProduct = async ({ 
   code, name, price, costPrice, quantity, unit_id, 
   supplier = 'Walk-in / Unknown', invoiceNumber = null,
-  cartonCode = null, cartonMultiplier = 1 
+  cartonCode = null, cartonMultiplier = 1,
+  serials = [],
+  image_url = null // <-- NEW
 }) => {
   const client = await pool.connect();
 
-  // Protect against empty strings from the frontend breaking the UNIQUE constraint
   const cleanCartonCode = cartonCode && cartonCode.trim() !== '' ? cartonCode.trim() : null;
   const cleanMultiplier = cartonMultiplier ? parseInt(cartonMultiplier) : 1;
 
@@ -89,14 +88,13 @@ const addProduct = async ({
     await client.query('BEGIN');
     let currentProduct;
 
-    // Check if it exists by normal code OR carton code
     const checkResult = await client.query(
       'SELECT * FROM product WHERE code = $1 OR (carton_code = $2 AND carton_code IS NOT NULL)', 
       [code, cleanCartonCode]
     );
 
     if (checkResult.rows.length > 0) {
-      // 🟢 EXISTING PRODUCT
+      // 🟢 EXISTING PRODUCT (Restock)
       currentProduct = checkResult.rows[0];
       const updateResult = await client.query(
         `UPDATE product 
@@ -104,23 +102,37 @@ const addProduct = async ({
              price = $2, 
              "costPrice" = $3,
              carton_code = COALESCE($4, carton_code),
-             carton_multiplier = COALESCE($5, carton_multiplier)
-         WHERE id = $6 RETURNING *;`,
-        [quantity, price, costPrice, cleanCartonCode, cleanMultiplier, currentProduct.id]
+             carton_multiplier = COALESCE($5, carton_multiplier),
+             image_url = COALESCE($6, image_url) -- 🚨 NEW: Only update image if a new one is provided
+         WHERE id = $7 RETURNING *;`,
+        [quantity, price, costPrice, cleanCartonCode, cleanMultiplier, image_url, currentProduct.id]
       );
       currentProduct = updateResult.rows[0];
     } else {
       // 🔵 NEW PRODUCT
       const newProductId = crypto.randomUUID();
       const insertResult = await client.query(
-        `INSERT INTO product (id, code, name, price, "costPrice", quantity, unit_id, carton_code, carton_multiplier) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *;`,
-        [newProductId, code, name, price, costPrice, quantity, unit_id, cleanCartonCode, cleanMultiplier]
+        // 🚨 NEW: Added image_url to the INSERT columns and values
+        `INSERT INTO product (id, code, name, price, "costPrice", quantity, unit_id, carton_code, carton_multiplier, image_url) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *;`,
+        [newProductId, code, name, price, costPrice, quantity, unit_id, cleanCartonCode, cleanMultiplier, image_url]
       );
       currentProduct = insertResult.rows[0];
     }
 
-    // 3. Log the "Stock In" activity WITH the supplier and invoice fields
+    if (serials && Array.isArray(serials) && serials.length > 0) {
+      for (const serial of serials) {
+        if (serial && serial.trim() !== '') {
+          await client.query(
+            `INSERT INTO product_serial (product_id, serial_number, status) 
+             VALUES ($1, $2, 'IN_STOCK') 
+             ON CONFLICT (serial_number) DO NOTHING;`,
+            [currentProduct.id, serial.trim()]
+          );
+        }
+      }
+    }
+
     if (quantity > 0) {
       const totalCost = quantity * costPrice;
       await client.query(
