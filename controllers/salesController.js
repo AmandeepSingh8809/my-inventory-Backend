@@ -30,20 +30,21 @@ const processBulkSale = async (req, res) => {
 };
 
 // todays  sales  
+// todays  sales  
 const  getTodayStats = async(req, res)=>{
   try{
     const stats = await saleModel.getTodaySalesStats();
     res.status(200).json({
-      message:"Today's sales fetched  successfully",
-
-      data:{
+      message: "Today's sales fetched successfully",
+      data: {
         totalRevenue: parseFloat(stats.total_revenue),
-        totalItemsSold:parseInt(stats.total_items_sold)
+        totalItemsSold: parseInt(stats.total_items_sold),
+        totalProfit: parseFloat(stats.total_profit) // 🚨 NEW: Pass the profit to React Native!
       }
     });
-  }catch(error){
-    console.error("dashboard sales fetch error:",error);
-    res.status(500).json({error:"failed to fetch  dashboard sales stat"});
+  } catch(error) {
+    console.error("dashboard sales fetch error:", error);
+    res.status(500).json({error: "failed to fetch dashboard sales stat"});
   }
 };
 

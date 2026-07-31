@@ -7,6 +7,7 @@ const productRoutes = require("./routes/productRoutes");
 const salesRoutes = require("./routes/salesroutes");
 const purchaseRoutes = require("./routes/purchaseRoutes");
 const financeRoutes = require("./routes/financeRoutes");
+const  authRoutes = require("./routes/authRoutes");
 const app = express();
 const path = require('path');
 // Middleware
@@ -14,6 +15,7 @@ app.use(cors());
 app.use(bodyParser.json()); // Tells Express to parse incoming JSON data
 app.use('/uploads', express.static(path.join(__dirname,'uploads')));
 // Routes
+app.use('/', authRoutes);
 app.use('/', productRoutes);
 app.use('/',salesRoutes);
 app.use('/',purchaseRoutes);

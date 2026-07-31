@@ -3,12 +3,12 @@ const pool = require("../config/db.js");
 const getFinancialMetrics = async (filter = 'All Time', startDate, endDate) => {
   // ---------------------------------------------------------
   // QUERY 1: THE SNAPSHOT (Current Asset Valuation)
-  // This ignores time filters because stock value is "right now"
+  // 🚨 UPDATED FOR FIFO: Calculates exact value of remaining batches
   // ---------------------------------------------------------
   const stockQuery = `
-    SELECT COALESCE(SUM(quantity * "costPrice"), 0) AS total_stock_value 
-    FROM product 
-    WHERE quantity > 0;
+    SELECT COALESCE(SUM(remaining_qty * unit_cost), 0) AS total_stock_value 
+    FROM purchase 
+    WHERE remaining_qty > 0;
   `;
 
   // ---------------------------------------------------------
@@ -35,15 +35,14 @@ const getFinancialMetrics = async (filter = 'All Time', startDate, endDate) => {
 
   // ---------------------------------------------------------
   // QUERY 2: SALES, COGS, & GROSS PROFIT (Income Statement)
+  // 🚨 UPDATED FOR FIFO: Directly sums the exact total_cost saved during checkout
   // ---------------------------------------------------------
-  // We join the product table to fetch the costPrice of the sold items
   const salesQuery = `
     SELECT 
-      COALESCE(SUM(s.total_amount), 0) AS total_revenue,
-      COALESCE(SUM(s.quantity * p."costPrice"), 0) AS total_cogs
-    FROM sale s
-    LEFT JOIN product p ON s.product_id = p.id
-    WHERE 1=1 ${timeCondition.replace(/created_at/g, 's.created_at')};
+      COALESCE(SUM(total_amount), 0) AS total_revenue,
+      COALESCE(SUM(total_cost), 0) AS total_cogs
+    FROM sale 
+    WHERE 1=1 ${timeCondition};
   `;
 
   // ---------------------------------------------------------

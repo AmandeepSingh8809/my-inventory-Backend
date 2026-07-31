@@ -136,9 +136,9 @@ const addProduct = async ({
     if (quantity > 0) {
       const totalCost = quantity * costPrice;
       await client.query(
-        `INSERT INTO purchase (product_id, quantity, unit_cost, total_cost, supplier, invoice_number)
-         VALUES ($1, $2, $3, $4, $5, $6);`,
-        [currentProduct.id, quantity, costPrice, totalCost, supplier, invoiceNumber]
+        `INSERT INTO purchase (product_id, quantity, remaining_qty, unit_cost, total_cost, supplier, invoice_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7);`,
+        [currentProduct.id, quantity,quantity, costPrice, totalCost, supplier, invoiceNumber]
       );
     }
 
