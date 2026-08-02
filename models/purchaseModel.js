@@ -1,6 +1,7 @@
 const pool = require("../config/db.js");
 
-const getPurchaseHistory = async (filter, search, startDate, endDate) => {
+// 🚨 UPGRADED: Added shopCode as the first parameter
+const getPurchaseHistory = async (shopCode, filter, search, startDate, endDate) => {
   // Join product so we know WHAT was purchased
   let sql = `
     SELECT 
@@ -9,11 +10,12 @@ const getPurchaseHistory = async (filter, search, startDate, endDate) => {
       p.code AS product_code
     FROM purchase pr
     LEFT JOIN product p ON pr.product_id = p.id
-    WHERE 1=1
+    WHERE pr.shop_code = $1 -- 🚨 Locked strictly to their shop
   `;
   
-  const params = [];
-  let paramIdx = 1;
+  // 🚨 UPGRADED: Initialize with shopCode, next dynamic param is $2
+  const params = [shopCode];
+  let paramIdx = 2;
 
   // 1. DATE FILTERS (Assuming your timestamp column is 'created_at')
   if (filter === 'Today') {
@@ -27,6 +29,7 @@ const getPurchaseHistory = async (filter, search, startDate, endDate) => {
   } else if (filter === '1 Year') {
     sql += ` AND pr.created_at >= CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata' - INTERVAL '1 year'`;
   } else if (filter === 'Custom' && startDate && endDate) {
+    // 🚨 UPGRADED: Uses dynamic indexes
     sql += ` AND DATE(pr.created_at AT TIME ZONE 'Asia/Kolkata') >= $${paramIdx} 
              AND DATE(pr.created_at AT TIME ZONE 'Asia/Kolkata') <= $${paramIdx + 1}`;
     params.push(startDate, endDate);

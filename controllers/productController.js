@@ -3,8 +3,11 @@ const productModel = require('../models/productModel.js');
 
 const fetchAllProducts = async (req, res) => {
   try {
-    // You can pass query parameters here later if you want pagination from the app!
-    const products = await productModel.fetchAllProduct(20, 0);
+    // 🚨 UPGRADED: Grab the shopCode from the verified JWT token
+    const shopCode = req.user.shopCode;
+
+    // 🚨 UPGRADED: Pass shopCode as the first parameter to the model
+    const products = await productModel.fetchAllProduct(shopCode, 20, 0);
     res.json(products);
   } catch (error) {
     console.error("Error in fetchAllProducts controller:", error);
@@ -14,6 +17,9 @@ const fetchAllProducts = async (req, res) => {
 
 const addProduct = async (req, res) => {
   try {
+    // 🚨 UPGRADED: Grab the shopCode from the verified JWT token
+    const shopCode = req.user.shopCode;
+
     const { 
       code, 
       name, 
@@ -23,7 +29,7 @@ const addProduct = async (req, res) => {
       unit_id, 
       supplier, 
       invoiceNumber,
-      cartonCode,         
+      cartonCode,        
       cartonMultiplier,
     } = req.body;
 
@@ -50,10 +56,11 @@ const addProduct = async (req, res) => {
       unit_id: parseInt(unit_id),
       supplier,       
       invoiceNumber,   
-      cartonCode,         
+      cartonCode,        
       cartonMultiplier: cartonMultiplier ? parseInt(cartonMultiplier) : 1,
       serials: serialsArray,
-      image_url // 🚨 NEW: Pass the image path to the database model
+      image_url,
+      shop_code: shopCode // 🚨 UPGRADED: Pass the shop_code securely to the database
     });
 
     res.status(201).json(newProduct);
@@ -65,9 +72,13 @@ const addProduct = async (req, res) => {
 
 const searchProducts = async (req, res) => {
   try {
-    // req.query contains everything after the '?' in the URL 
-    // e.g., /api/products/search?query=sandisk&inStockOnly=true
-    const products = await productModel.searchProducts(req.query);
+    // 🚨 UPGRADED: Grab the shopCode from the verified JWT token
+    const shopCode = req.user.shopCode;
+
+    // 🚨 UPGRADED: Inject the shopCode into the query filters before sending to the model
+    const filters = { ...req.query, shopCode };
+
+    const products = await productModel.searchProducts(filters);
     res.json(products);
   } catch (error) {
     console.error("Search error:", error);

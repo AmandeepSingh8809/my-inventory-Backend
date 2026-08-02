@@ -3,7 +3,13 @@ const purchaseModel = require('../models/purchaseModel');
 const fetchPurchases = async (req, res) => {
   try {
     const { filter, search, startDate, endDate } = req.query;
-    const purchases = await purchaseModel.getPurchaseHistory(filter, search, startDate, endDate);
+    
+    // 🚨 UPGRADED: Securely grab the shopCode from the authenticated token
+    const shopCode = req.user.shopCode;
+
+    // 🚨 UPGRADED: Pass the shopCode as the very first parameter to your model
+    const purchases = await purchaseModel.getPurchaseHistory(shopCode, filter, search, startDate, endDate);
+    
     res.status(200).json(purchases);
   } catch (error) {
     console.error("Purchase History Error:", error);

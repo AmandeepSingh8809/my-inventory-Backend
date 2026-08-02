@@ -1,24 +1,28 @@
 const pool = require("../config/db.js");
 const crypto = require("crypto"); // Built-in Node.js module to generate IDs
 
-const fetchAllProduct = async (limit = 20, offset = 0) => {
+// 🚨 UPGRADED: Added `shopCode` parameter and `WHERE p.shop_code = $1`
+const fetchAllProduct = async (shopCode, limit = 20, offset = 0) => {
   const result = await pool.query(
     `SELECT 
         p.*, 
         u.name AS unit_name 
      FROM product p
      LEFT JOIN unit u ON p.unit_id = u.id
+     WHERE p.shop_code = $1
      ORDER BY p.id DESC 
-     LIMIT $1 OFFSET $2;`,
-    [limit, offset]
+     LIMIT $2 OFFSET $3;`,
+    [shopCode, limit, offset]
   );
   return result.rows;  
 };
 
 const searchProducts = async (filters) => {
-  const { query, category, minPrice, maxPrice, inStockOnly } = filters;
+  // 🚨 UPGRADED: Extract shopCode from filters
+  const { query, category, minPrice, maxPrice, inStockOnly, shopCode } = filters;
   const cleanQuery = query ? query.trim() : '';
   
+  // 🚨 UPGRADED: Added `WHERE p.shop_code = $2` to lock search to their shop
   let sql = `
     SELECT p.*, u.name AS unit_name,
            CASE WHEN p.carton_code = $1 THEN p.carton_multiplier ELSE 1 END AS scan_qty,
@@ -26,11 +30,12 @@ const searchProducts = async (filters) => {
     FROM product p
     LEFT JOIN unit u ON p.unit_id = u.id
     LEFT JOIN product_serial ps ON ps.product_id = p.id AND ps.serial_number = $1
-    WHERE 1=1
+    WHERE p.shop_code = $2
   `;
 
-  const params = [cleanQuery];
-  let paramIdx = 2; 
+  // $1 is cleanQuery, $2 is shopCode
+  const params = [cleanQuery, shopCode];
+  let paramIdx = 3; 
 
   if (cleanQuery) {
     sql += ` AND (
@@ -71,13 +76,13 @@ const searchProducts = async (filters) => {
   return result.rows;
 };
 
-// 🚨 UPGRADED: Added `image_url = null` parameter
 const addProduct = async ({ 
   code, name, price, costPrice, quantity, unit_id, 
   supplier = 'Walk-in / Unknown', invoiceNumber = null,
   cartonCode = null, cartonMultiplier = 1,
   serials = [],
-  image_url = null // <-- NEW
+  image_url = null,
+  shop_code // 🚨 UPGRADED: Must receive the shop_code from the controller
 }) => {
   const client = await pool.connect();
 
@@ -88,9 +93,12 @@ const addProduct = async ({
     await client.query('BEGIN');
     let currentProduct;
 
+    // 🚨 UPGRADED: Check if product exists IN THIS SPECIFIC SHOP
     const checkResult = await client.query(
-      'SELECT * FROM product WHERE code = $1 OR (carton_code = $2 AND carton_code IS NOT NULL)', 
-      [code, cleanCartonCode]
+      `SELECT * FROM product 
+       WHERE (code = $1 OR (carton_code = $2 AND carton_code IS NOT NULL)) 
+       AND shop_code = $3`, 
+      [code, cleanCartonCode, shop_code]
     );
 
     if (checkResult.rows.length > 0) {
@@ -103,7 +111,7 @@ const addProduct = async ({
              "costPrice" = $3,
              carton_code = COALESCE($4, carton_code),
              carton_multiplier = COALESCE($5, carton_multiplier),
-             image_url = COALESCE($6, image_url) -- 🚨 NEW: Only update image if a new one is provided
+             image_url = COALESCE($6, image_url)
          WHERE id = $7 RETURNING *;`,
         [quantity, price, costPrice, cleanCartonCode, cleanMultiplier, image_url, currentProduct.id]
       );
@@ -112,10 +120,10 @@ const addProduct = async ({
       // 🔵 NEW PRODUCT
       const newProductId = crypto.randomUUID();
       const insertResult = await client.query(
-        // 🚨 NEW: Added image_url to the INSERT columns and values
-        `INSERT INTO product (id, code, name, price, "costPrice", quantity, unit_id, carton_code, carton_multiplier, image_url) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *;`,
-        [newProductId, code, name, price, costPrice, quantity, unit_id, cleanCartonCode, cleanMultiplier, image_url]
+        // 🚨 UPGRADED: Insert the shop_code ($11) into the database
+        `INSERT INTO product (id, code, name, price, "costPrice", quantity, unit_id, carton_code, carton_multiplier, image_url, shop_code) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;`,
+        [newProductId, code, name, price, costPrice, quantity, unit_id, cleanCartonCode, cleanMultiplier, image_url, shop_code]
       );
       currentProduct = insertResult.rows[0];
     }
@@ -138,7 +146,7 @@ const addProduct = async ({
       await client.query(
         `INSERT INTO purchase (product_id, quantity, remaining_qty, unit_cost, total_cost, supplier, invoice_number)
          VALUES ($1, $2, $3, $4, $5, $6, $7);`,
-        [currentProduct.id, quantity,quantity, costPrice, totalCost, supplier, invoiceNumber]
+        [currentProduct.id, quantity, quantity, costPrice, totalCost, supplier, invoiceNumber]
       );
     }
 

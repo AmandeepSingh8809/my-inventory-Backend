@@ -1,10 +1,12 @@
 const pool = require("../config/db.js");
 const crypto = require("crypto");
 
+// 🚨 UPGRADED: Added shopCode to the destructured parameters
 const recordBulkSale = async ({
   items,
   paymentMethod = "CASH",
   customerInfo = null,
+  shopCode // 👈 NEW
 }) => {
   const client = await pool.connect();
 
@@ -25,10 +27,10 @@ const recordBulkSale = async ({
       const batchesResult = await client.query(
         `SELECT id, remaining_qty, unit_cost 
          FROM purchase 
-         WHERE product_id = $1 AND remaining_qty > 0 
+         WHERE product_id = $1 AND remaining_qty > 0 AND shop_code = $2 -- 🚨 Locked to shop
          ORDER BY created_at ASC, id ASC 
          FOR UPDATE`,
-        [productId]
+        [productId, shopCode]
       );
 
       for (const batch of batchesResult.rows) {
@@ -61,20 +63,20 @@ const recordBulkSale = async ({
       const updateResult = await client.query(
         `UPDATE product 
          SET quantity = quantity - $2 
-         WHERE id = $1 AND quantity >= $2 
+         WHERE id = $1 AND quantity >= $2 AND shop_code = $3 -- 🚨 Locked to shop
          RETURNING name;`, 
-        [productId, quantity],
+        [productId, quantity, shopCode],
       );
 
       if (updateResult.rows.length === 0) {
         throw new Error(`Insufficient total stock for one of the items in the cart.`);
       }
 
-      // 3. Record this specific item in the sale table (Now includes total_cost!)
+      // 3. Record this specific item in the sale table
       const saleId = crypto.randomUUID();
       const saleResult = await client.query(
-        `INSERT INTO sale (id, product_id, quantity, unit_price, total_amount, payment_method, customer_info, total_cost)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO sale (id, product_id, quantity, unit_price, total_amount, payment_method, customer_info, total_cost, shop_code)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) -- 🚨 Added shop_code insertion
          RETURNING *;`,
         [
           saleId,
@@ -84,7 +86,8 @@ const recordBulkSale = async ({
           totalAmount,
           paymentMethod,
           customerInfo,
-          totalFifoCostForThisItem // 👈 Exact profit tracking inserted here
+          totalFifoCostForThisItem,
+          shopCode // 👈 NEW
         ],
       );
 
@@ -105,8 +108,8 @@ const recordBulkSale = async ({
   }
 };
 
-// 🚨 UPGRADED: Now calculates exact FIFO profit!
-const getTodaySalesStats = async () => {
+// 🚨 UPGRADED: Added shopCode parameter
+const getTodaySalesStats = async (shopCode) => {
   const query = `
     SELECT 
       COALESCE(SUM(total_amount), 0) AS total_revenue,
@@ -114,17 +117,18 @@ const getTodaySalesStats = async () => {
       COALESCE(SUM(total_amount) - SUM(total_cost), 0) AS total_profit,
       COUNT(id) AS total_items_sold
     FROM sale
-    WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata');
+    WHERE DATE(created_at AT TIME ZONE 'Asia/Kolkata') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')
+      AND shop_code = $1; -- 🚨 Filtered by shopCode
   `;
 
-  const result = await pool.query(query);
+  const result = await pool.query(query, [shopCode]);
 
   // result.rows[0] will look like: { total_revenue: 6000, total_cost: 3300, total_profit: 2700, total_items_sold: 1 }
   return result.rows[0]; 
 };
 
-// NEW: Accept startDate and endDate
-const getSalesHistory = async (filter, search, startDate, endDate) => {
+// 🚨 UPGRADED: Added shopCode as first parameter
+const getSalesHistory = async (shopCode, filter, search, startDate, endDate) => {
   let sql = `
     SELECT 
       s.*, 
@@ -132,11 +136,12 @@ const getSalesHistory = async (filter, search, startDate, endDate) => {
       p.code AS product_code
     FROM sale s
     LEFT JOIN product p ON s.product_id = p.id
-    WHERE 1=1
+    WHERE s.shop_code = $1 -- 🚨 Locked to shop
   `;
   
-  const params = [];
-  let paramIdx = 1;
+  // 🚨 UPGRADED: Set shopCode as $1 and start dynamic parameters at $2
+  const params = [shopCode];
+  let paramIdx = 2; 
 
   if (filter === 'Today') {
     sql += ` AND DATE(s.created_at AT TIME ZONE 'Asia/Kolkata') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')`;
@@ -149,8 +154,8 @@ const getSalesHistory = async (filter, search, startDate, endDate) => {
   } else if (filter === '1 Year') {
     sql += ` AND s.created_at >= CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata' - INTERVAL '1 year'`;
   } 
-  // NEW: Add the logic for the Custom filter
   else if (filter === 'Custom' && startDate && endDate) {
+    // 🚨 UPGRADED: Uses dynamic indexes
     sql += ` AND DATE(s.created_at AT TIME ZONE 'Asia/Kolkata') >= $${paramIdx} 
              AND DATE(s.created_at AT TIME ZONE 'Asia/Kolkata') <= $${paramIdx + 1}`;
     params.push(startDate, endDate);

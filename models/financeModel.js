@@ -1,22 +1,24 @@
 const pool = require("../config/db.js");
 
-const getFinancialMetrics = async (filter = 'All Time', startDate, endDate) => {
+// 🚨 UPGRADED: Added shopCode as the very first parameter
+const getFinancialMetrics = async (shopCode, filter = 'All Time', startDate, endDate) => {
   // ---------------------------------------------------------
   // QUERY 1: THE SNAPSHOT (Current Asset Valuation)
-  // 🚨 UPDATED FOR FIFO: Calculates exact value of remaining batches
   // ---------------------------------------------------------
   const stockQuery = `
     SELECT COALESCE(SUM(remaining_qty * unit_cost), 0) AS total_stock_value 
     FROM purchase 
-    WHERE remaining_qty > 0;
+    WHERE remaining_qty > 0 AND shop_code = $1; -- 🚨 Lock to shopCode
   `;
 
   // ---------------------------------------------------------
   // TIMELINE CONDITION BUILDER
   // ---------------------------------------------------------
   let timeCondition = '';
-  const params = [];
-  let paramIdx = 1;
+  
+  // 🚨 UPGRADED: Put shopCode as the first parameter ($1)
+  const params = [shopCode];
+  let paramIdx = 2; // Next dynamic parameters will start at $2
 
   if (filter === 'Today') {
     timeCondition = ` AND DATE(created_at AT TIME ZONE 'Asia/Kolkata') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')`;
@@ -29,20 +31,20 @@ const getFinancialMetrics = async (filter = 'All Time', startDate, endDate) => {
   } else if (filter === '1 Year') {
     timeCondition = ` AND created_at >= CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata' - INTERVAL '1 year'`;
   } else if (filter === 'Custom' && startDate && endDate) {
-    timeCondition = ` AND DATE(created_at AT TIME ZONE 'Asia/Kolkata') >= $1 AND DATE(created_at AT TIME ZONE 'Asia/Kolkata') <= $2`;
+    // 🚨 UPGRADED: Use dynamic param indexes ($2 and $3)
+    timeCondition = ` AND DATE(created_at AT TIME ZONE 'Asia/Kolkata') >= $${paramIdx} AND DATE(created_at AT TIME ZONE 'Asia/Kolkata') <= $${paramIdx + 1}`;
     params.push(startDate, endDate);
   }
 
   // ---------------------------------------------------------
   // QUERY 2: SALES, COGS, & GROSS PROFIT (Income Statement)
-  // 🚨 UPDATED FOR FIFO: Directly sums the exact total_cost saved during checkout
   // ---------------------------------------------------------
   const salesQuery = `
     SELECT 
       COALESCE(SUM(total_amount), 0) AS total_revenue,
       COALESCE(SUM(total_cost), 0) AS total_cogs
     FROM sale 
-    WHERE 1=1 ${timeCondition};
+    WHERE shop_code = $1 ${timeCondition}; -- 🚨 Lock to shopCode
   `;
 
   // ---------------------------------------------------------
@@ -51,7 +53,7 @@ const getFinancialMetrics = async (filter = 'All Time', startDate, endDate) => {
   const purchaseQuery = `
     SELECT COALESCE(SUM(total_cost), 0) AS total_purchases
     FROM purchase
-    WHERE 1=1 ${timeCondition};
+    WHERE shop_code = $1 ${timeCondition}; -- 🚨 Lock to shopCode
   `;
 
   // ---------------------------------------------------------
@@ -59,18 +61,21 @@ const getFinancialMetrics = async (filter = 'All Time', startDate, endDate) => {
   // ---------------------------------------------------------
   const client = await pool.connect();
   try {
-    const [stockRes, salesRes, purchaseRes] = await Promise.all([
-      client.query(stockQuery),
-      client.query(salesQuery, params),
-      client.query(purchaseQuery, params)
-    ]);
+  // ---------------------------------------------------------
+  // EXECUTE ALL QUERIES SIMULTANEOUSLY FOR SPEED
+  // ---------------------------------------------------------
+  // 🚨 UPGRADED: Using pool.query directly to safely run concurrent queries!
+  const [stockRes, salesRes, purchaseRes] = await Promise.all([
+    pool.query(stockQuery, [shopCode]), 
+    pool.query(salesQuery, params),
+    pool.query(purchaseQuery, params)
+  ]);
 
-    // Parse data safely
-    const totalStockValue = parseFloat(stockRes.rows[0].total_stock_value);
-    const totalRevenue = parseFloat(salesRes.rows[0].total_revenue);
-    const totalCOGS = parseFloat(salesRes.rows[0].total_cogs);
-    const totalPurchases = parseFloat(purchaseRes.rows[0].total_purchases);
-
+  // Parse data safely
+  const totalStockValue = parseFloat(stockRes.rows[0].total_stock_value);
+  const totalRevenue = parseFloat(salesRes.rows[0].total_revenue);
+  const totalCOGS = parseFloat(salesRes.rows[0].total_cogs);
+  const totalPurchases = parseFloat(purchaseRes.rows[0].total_purchases);
     // Business Math calculations
     const grossProfit = totalRevenue - totalCOGS;
     const grossMarginPercent = totalRevenue > 0 ? ((grossProfit / totalRevenue) * 100).toFixed(2) : 0;

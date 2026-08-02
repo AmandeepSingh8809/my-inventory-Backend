@@ -5,7 +5,11 @@ const fetchFinancialSummary = async (req, res) => {
     // Extract filters from the request query string (e.g., ?filter=1 Month)
     const { filter, startDate, endDate } = req.query;
 
-    const metrics = await financeModel.getFinancialMetrics(filter, startDate, endDate);
+    // 🚨 UPGRADED: Securely grab the shopCode from the authenticated token
+    const shopCode = req.user.shopCode;
+
+    // 🚨 UPGRADED: Pass the shopCode as the very first parameter to your model
+    const metrics = await financeModel.getFinancialMetrics(shopCode, filter, startDate, endDate);
     
     res.status(200).json(metrics);
   } catch (error) {

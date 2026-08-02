@@ -3,7 +3,7 @@ const  router = express.Router();
 const productController = require("../controllers/productController");
 const multer = require("multer");
 const path = require("path");
-
+const  verifyToken = require('../middleware/authMiddleware');
 
 // 🚨 NEW: Configure where and how Multer saves the images
 const storage = multer.diskStorage({
@@ -18,7 +18,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 
-router.get("/allProduct",productController.fetchAllProducts);
-router.post("/addProduct",upload.single('image'),productController.addProduct);
-router.get("/search", productController.searchProducts);
+router.get("/allProduct",verifyToken,productController.fetchAllProducts);
+router.post("/addProduct",verifyToken,upload.single('image'),productController.addProduct);
+router.get("/search",verifyToken, productController.searchProducts);
 module.exports = router;
