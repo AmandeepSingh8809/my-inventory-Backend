@@ -1,7 +1,6 @@
 const pool = require("../config/db.js");
 const crypto = require("crypto"); // Built-in Node.js module to generate IDs
 
-// 🚨 UPGRADED: Added `shopCode` parameter and `WHERE p.shop_code = $1`
 const fetchAllProduct = async (shopCode, limit = 20, offset = 0) => {
   const result = await pool.query(
     `SELECT 
@@ -18,11 +17,9 @@ const fetchAllProduct = async (shopCode, limit = 20, offset = 0) => {
 };
 
 const searchProducts = async (filters) => {
-  // 🚨 UPGRADED: Extract shopCode from filters
   const { query, category, minPrice, maxPrice, inStockOnly, shopCode } = filters;
   const cleanQuery = query ? query.trim() : '';
   
-  // 🚨 UPGRADED: Added `WHERE p.shop_code = $2` to lock search to their shop
   let sql = `
     SELECT p.*, u.name AS unit_name,
            CASE WHEN p.carton_code = $1 THEN p.carton_multiplier ELSE 1 END AS scan_qty,
@@ -33,7 +30,6 @@ const searchProducts = async (filters) => {
     WHERE p.shop_code = $2
   `;
 
-  // $1 is cleanQuery, $2 is shopCode
   const params = [cleanQuery, shopCode];
   let paramIdx = 3; 
 
@@ -82,7 +78,7 @@ const addProduct = async ({
   cartonCode = null, cartonMultiplier = 1,
   serials = [],
   image_url = null,
-  shop_code // 🚨 UPGRADED: Must receive the shop_code from the controller
+  shop_code // 🚨 Received from controller
 }) => {
   const client = await pool.connect();
 
@@ -93,7 +89,6 @@ const addProduct = async ({
     await client.query('BEGIN');
     let currentProduct;
 
-    // 🚨 UPGRADED: Check if product exists IN THIS SPECIFIC SHOP
     const checkResult = await client.query(
       `SELECT * FROM product 
        WHERE (code = $1 OR (carton_code = $2 AND carton_code IS NOT NULL)) 
@@ -120,7 +115,6 @@ const addProduct = async ({
       // 🔵 NEW PRODUCT
       const newProductId = crypto.randomUUID();
       const insertResult = await client.query(
-        // 🚨 UPGRADED: Insert the shop_code ($11) into the database
         `INSERT INTO product (id, code, name, price, "costPrice", quantity, unit_id, carton_code, carton_multiplier, image_url, shop_code) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;`,
         [newProductId, code, name, price, costPrice, quantity, unit_id, cleanCartonCode, cleanMultiplier, image_url, shop_code]
@@ -144,9 +138,10 @@ const addProduct = async ({
     if (quantity > 0) {
       const totalCost = quantity * costPrice;
       await client.query(
-        `INSERT INTO purchase (product_id, quantity, remaining_qty, unit_cost, total_cost, supplier, invoice_number)
-         VALUES ($1, $2, $3, $4, $5, $6, $7);`,
-        [currentProduct.id, quantity, quantity, costPrice, totalCost, supplier, invoiceNumber]
+        // 🚨 FIX: Added shop_code to the INSERT statement below
+        `INSERT INTO purchase (product_id, quantity, remaining_qty, unit_cost, total_cost, supplier, invoice_number, shop_code)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`,
+        [currentProduct.id, quantity, quantity, costPrice, totalCost, supplier, invoiceNumber, shop_code]
       );
     }
 

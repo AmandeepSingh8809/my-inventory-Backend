@@ -66,48 +66,55 @@ const login = async (req, res) => {
 
 
 
-//register  logic 
-const  register = async(req, res)=>{
-  const{
-    firstName,lastName,username,email,mobile,shopName,address,pincode,password
+// register logic 
+const register = async (req, res) => {
+  // 1. Removed shopName, address, and pincode from the request body
+  const {
+    firstName, lastName, username, email, mobile, password
   } = req.body;
+  
   const client = await pool.connect();
-  try{
+  
+  try {
     await client.query('BEGIN');
-  const  userCheck = await client.query(
-    'SELECT * FROM users WHERE username = $1 OR email= $2',
-    [username,email]
-  );
-  if(userCheck.rows.length>0){
-    await client.query('ROLLBACK');
-    return res.status(400).json({error:'Username or email already taken'});
-  }
-  const uniqueHash = crypto.randomBytes(3).toString('hex').toLocaleUpperCase();
-  const shopCode = `SHOP_${uniqueHash}`;
-
-  const hashedPassword = await bcrypt.hash(password,10);
-  const insertUserResult = await client.query(
-    `INSERT INTO users 
-        (first_name, last_name, username, email, mobile, password, user_role, shop_code) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-       RETURNING id, username`,
-      [firstName, lastName, username, email, mobile, hashedPassword, 'admin', shopCode]
-  );
-  const  newUser = insertUserResult.rows[0];
-  await client.query(`INSERT INTO shops (shop_code, shop_name, address, pincode, owner_id) 
-       VALUES ($1, $2, $3, $4, $5)`,
-      [shopCode, shopName, address, pincode, newUser.id]
+    
+    const userCheck = await client.query(
+      'SELECT * FROM users WHERE username = $1 OR email = $2',
+      [username, email]
     );
+    
+    if (userCheck.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Username or email already taken' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // 2. Removed shop_code from the users table INSERT
+    const insertUserResult = await client.query(
+      `INSERT INTO users 
+          (first_name, last_name, username, email, mobile, password, user_role) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) 
+       RETURNING id, username`,
+      [firstName, lastName, username, email, mobile, hashedPassword, 'admin']
+    );
+    
+    // 3. Completely removed the INSERT INTO shops query
+
     await client.query('COMMIT');
+    
+    // 4. Updated the success response
     res.status(201).json({
-      message: 'Store created successfully! You can now log in.',
-      shopCode: shopCode
+      message: 'Account created successfully! You can now log in and create a store.',
     });
-  }catch(error){
-    console.error("registration error",error);
-    res.status(500).json({error:'server error during registration'});
-  }finally{
+    
+  } catch (error) {
+    await client.query('ROLLBACK'); // Added rollback here just in case the insert fails
+    console.error("registration error", error);
+    res.status(500).json({ error: 'server error during registration' });
+  } finally {
     client.release();
   }
 };
+
 module.exports = { login,register};
