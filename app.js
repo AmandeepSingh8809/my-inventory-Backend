@@ -9,6 +9,7 @@ const purchaseRoutes = require("./routes/purchaseRoutes");
 const financeRoutes = require("./routes/financeRoutes");
 const shopRoutes = require("./routes/shopRoutes");
 const authRoutes = require("./routes/authRoutes");
+const employeeRoutes = require("./routes/employeeRoutes");
 const app = express();
 const path = require('path');
 
@@ -30,6 +31,6 @@ app.use('/', salesRoutes);
 app.use('/', purchaseRoutes);
 app.use('/', financeRoutes);
 app.use('/', shopRoutes);
-
+app.use('/',employeeRoutes);
 // Export the app so server.js can use it!
 module.exports = app;
