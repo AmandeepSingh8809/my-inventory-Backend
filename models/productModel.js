@@ -78,7 +78,8 @@ const addProduct = async ({
   cartonCode = null, cartonMultiplier = 1,
   serials = [],
   image_url = null,
-  shop_code // 🚨 Received from controller
+  shop_code,
+  user_id // 🔥 Received from the controller
 }) => {
   const client = await pool.connect();
 
@@ -106,18 +107,19 @@ const addProduct = async ({
              "costPrice" = $3,
              carton_code = COALESCE($4, carton_code),
              carton_multiplier = COALESCE($5, carton_multiplier),
-             image_url = COALESCE($6, image_url)
-         WHERE id = $7 RETURNING *;`,
-        [quantity, price, costPrice, cleanCartonCode, cleanMultiplier, image_url, currentProduct.id]
+             image_url = COALESCE($6, image_url),
+             user_id = COALESCE($7, user_id)
+         WHERE id = $8 RETURNING *;`,
+        [quantity, price, costPrice, cleanCartonCode, cleanMultiplier, image_url, user_id, currentProduct.id]
       );
       currentProduct = updateResult.rows[0];
     } else {
       // 🔵 NEW PRODUCT
       const newProductId = crypto.randomUUID();
       const insertResult = await client.query(
-        `INSERT INTO product (id, code, name, price, "costPrice", quantity, unit_id, carton_code, carton_multiplier, image_url, shop_code) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;`,
-        [newProductId, code, name, price, costPrice, quantity, unit_id, cleanCartonCode, cleanMultiplier, image_url, shop_code]
+        `INSERT INTO product (id, code, name, price, "costPrice", quantity, unit_id, carton_code, carton_multiplier, image_url, shop_code, user_id) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *;`,
+        [newProductId, code, name, price, costPrice, quantity, unit_id, cleanCartonCode, cleanMultiplier, image_url, shop_code, user_id]
       );
       currentProduct = insertResult.rows[0];
     }
@@ -138,10 +140,9 @@ const addProduct = async ({
     if (quantity > 0) {
       const totalCost = quantity * costPrice;
       await client.query(
-        // 🚨 FIX: Added shop_code to the INSERT statement below
-        `INSERT INTO purchase (product_id, quantity, remaining_qty, unit_cost, total_cost, supplier, invoice_number, shop_code)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`,
-        [currentProduct.id, quantity, quantity, costPrice, totalCost, supplier, invoiceNumber, shop_code]
+        `INSERT INTO purchase (product_id, quantity, remaining_qty, unit_cost, total_cost, supplier, invoice_number, shop_code, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
+        [currentProduct.id, quantity, quantity, costPrice, totalCost, supplier, invoiceNumber, shop_code, user_id]
       );
     }
 

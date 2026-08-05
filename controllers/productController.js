@@ -1,10 +1,10 @@
-// Import the model you just created (adjust the path if your folder is named differently)
+const pool = require("../config/db.js");
 const productModel = require('../models/productModel.js');
 
 const fetchAllProducts = async (req, res) => {
   try {
     // 🚨 UPGRADED: Grab the shopCode from the verified JWT token
-    const shopCode = req.user.shopCode;
+    const shopCode = req.user?.shopCode;
 
     // 🚨 UPGRADED: Pass shopCode as the first parameter to the model
     const products = await productModel.fetchAllProduct(shopCode, 20, 0);
@@ -17,8 +17,29 @@ const fetchAllProducts = async (req, res) => {
 
 const addProduct = async (req, res) => {
   try {
-    // 🚨 UPGRADED: Grab the shopCode from the verified JWT token
-    const shopCode = req.user.shopCode;
+    const shopCode = req.user?.shopCode;
+    const userId = req.user?.id || req.user?.userId;
+
+    if (!shopCode) {
+      return res.status(400).json({ error: "No shop specified in token." });
+    }
+
+    // 🔥 STRICT OWNERSHIP & EXISTENCE CHECK:
+    // Ensures the shop exists AND the user is explicitly authorized to manage it.
+   // 🔥 Corrected query matching your exact schema foreign keys
+    const shopCheck = await pool.query(
+      `SELECT s.shop_code 
+       FROM shops s
+       JOIN user_shops us ON s.id = us.shop_id
+       WHERE s.shop_code = $1 AND us.user_id = $2`,
+      [shopCode, userId]
+    );
+
+    if (shopCheck.rows.length === 0) {
+      return res.status(403).json({ 
+        error: "Access Denied: You are not authorized to add products to this shop." 
+      });
+    }
 
     const { 
       code, 
@@ -46,7 +67,7 @@ const addProduct = async (req, res) => {
     // 2. 🚨 Get the image path if a file was uploaded by Multer
     const image_url = req.file ? `/uploads/${req.file.filename}` : null;
 
-    // 3. Send parsed data to the model
+    // 3. Send parsed data + user_id to the model
     const newProduct = await productModel.addProduct({
       code,
       name,
@@ -60,7 +81,8 @@ const addProduct = async (req, res) => {
       cartonMultiplier: cartonMultiplier ? parseInt(cartonMultiplier) : 1,
       serials: serialsArray,
       image_url,
-      shop_code: shopCode // 🚨 UPGRADED: Pass the shop_code securely to the database
+      shop_code: shopCode, // 🚨 Securely mapped
+      user_id: userId      // 🔥 Track who added the product
     });
 
     res.status(201).json(newProduct);
@@ -73,8 +95,8 @@ const addProduct = async (req, res) => {
 const searchProducts = async (req, res) => {
   try {
     // 🚨 UPGRADED: Grab the shopCode from the verified JWT token
-    const shopCode = req.user.shopCode;
-
+    const shopCode = req.user?.shopCode;
+    
     // 🚨 UPGRADED: Inject the shopCode into the query filters before sending to the model
     const filters = { ...req.query, shopCode };
 

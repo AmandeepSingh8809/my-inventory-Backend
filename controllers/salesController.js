@@ -4,8 +4,9 @@ const processBulkSale = async (req, res) => {
   try {
     const { items, paymentMethod, customerInfo } = req.body;
     
-    // 🚨 UPGRADED: Securely grab the shopCode from the authenticated token
-    const shopCode = req.user.shopCode;
+    // 🚨 UPGRADED: Grab shopCode and userId from the authenticated token
+    const shopCode = req.user?.shopCode;
+    const userId = req.user?.id || req.user?.userId; // Ensure we get the ID safely
     
     // Make sure they actually sent items
     if (!items || items.length === 0) {
@@ -16,7 +17,8 @@ const processBulkSale = async (req, res) => {
       items, 
       paymentMethod, 
       customerInfo,
-      shopCode // 🚨 NEW: Pass it into the model
+      shopCode,
+      userId // 🔥 NEW: Save WHO made this sale so we can filter history later!
     });
 
     res.status(201).json({ 
@@ -25,7 +27,6 @@ const processBulkSale = async (req, res) => {
     });
 
   } catch (error) {
-    // Check if it's our custom out-of-stock error
     if (error.message.includes("Insufficient stock") || error.message.includes("Insufficient batch stock")) {
       return res.status(400).json({ error: error.message });
     }
@@ -36,18 +37,21 @@ const processBulkSale = async (req, res) => {
 // todays  sales  
 const getTodayStats = async(req, res)=>{
   try{
-    // 🚨 UPGRADED: Grab the shopCode
-    const shopCode = req.user.shopCode;
+    const shopCode = req.user?.shopCode;
+    const userId = req.user?.id || req.user?.userId;
 
-    // 🚨 NEW: Pass shopCode into the model
-    const stats = await saleModel.getTodaySalesStats(shopCode);
+    // 🔥 SCOPING MAGIC: If this is a Salesman, lock the query to their ID
+    const scopeToUserId = req.shopRole === 'Salesman' ? userId : null;
+
+    // 🚨 NEW: Pass scopeToUserId into the model
+    const stats = await saleModel.getTodaySalesStats(shopCode, scopeToUserId);
     
     res.status(200).json({
       message: "Today's sales fetched successfully",
       data: {
-        totalRevenue: parseFloat(stats.total_revenue),
-        totalItemsSold: parseInt(stats.total_items_sold),
-        totalProfit: parseFloat(stats.total_profit) 
+        totalRevenue: parseFloat(stats.total_revenue || 0),
+        totalItemsSold: parseInt(stats.total_items_sold || 0),
+        totalProfit: parseFloat(stats.total_profit || 0) 
       }
     });
   } catch(error) {
@@ -60,14 +64,16 @@ const getTodayStats = async(req, res)=>{
 // Add this below getTodayStats
 const fetchSalesHistory = async (req, res) => {
   try {
-    // Extract filter parameters
     const { filter, search, startDate, endDate } = req.query;
     
-    // 🚨 UPGRADED: Grab the shopCode
-    const shopCode = req.user.shopCode;
+    const shopCode = req.user?.shopCode;
+    const userId = req.user?.id || req.user?.userId;
 
-    // 🚨 NEW: Pass shopCode as the very first argument
-    const sales = await saleModel.getSalesHistory(shopCode, filter, search, startDate, endDate);
+    // 🔥 SCOPING MAGIC: If this is a Salesman, lock the query to their ID
+    const scopeToUserId = req.shopRole === 'Salesman' ? userId : null;
+
+    // 🚨 NEW: Pass scopeToUserId as the final argument
+    const sales = await saleModel.getSalesHistory(shopCode, filter, search, startDate, endDate, scopeToUserId);
     
     res.status(200).json(sales);
   } catch (error) {
